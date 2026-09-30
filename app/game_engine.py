@@ -115,6 +115,20 @@ class RoomRuntime:
     def team_size(self):
         return int(self.settings.get("team_size", Config.TEAM_SIZE))
 
+    def effective_max_auctions(self):
+        """Effective cap on how many auctions can run in this game.
+
+        0 in settings means 'auto': allow twice as many auctions as the
+        theoretical minimum (every active player fills their team with no
+        wasted bids). Minimum of 4 so tiny games still have some leeway.
+        """
+        configured = int(self.settings.get("max_total_auctions", 0) or 0)
+        if configured > 0:
+            return configured
+        active = len(self.active_players()) or self.settings.get("max_players", 2)
+        auto = active * self.team_size() * 2
+        return max(auto, 4)
+
     def lobby_payload(self):
         return {
             "room": {
@@ -150,6 +164,8 @@ class RoomRuntime:
                 "team_size": self.team_size(),
                 "min_players": Config.MIN_PLAYERS,
                 "max_players": self.settings["max_players"],
+                "auction_index": self.auction_index,
+                "auction_limit": self.effective_max_auctions(),
             },
             "players": players,
             "you": None,
@@ -173,6 +189,7 @@ class RoomRuntime:
             data["auction"] = {
                 "id": a.auction_id,
                 "index": self.auction_index,
+                "limit": self.effective_max_auctions(),
                 "pokemon": a.pokemon,
                 "starting_bid": a.starting_bid,
                 "current_bid": a.current_bid,
@@ -247,6 +264,9 @@ class GameManager:
             "allow_legendaries": bool(raw.get("allow_legendaries", Config.ALLOW_LEGENDARIES)),
             "allow_mythicals": bool(raw.get("allow_mythicals", Config.ALLOW_MYTHICALS)),
             "show_balances": bool(raw.get("show_balances", Config.SHOW_PLAYER_BALANCES)),
+            # 0 = auto (computed at runtime). Any positive value is a hard cap.
+            "max_total_auctions": clamp(int(raw.get("max_total_auctions",
+                                                    Config.MAX_TOTAL_AUCTIONS)), 0, 500),
         }
 
     def create_room(self, host_name, raw_settings=None):
@@ -665,7 +685,11 @@ class GameManager:
         self._persist_room_state(rt)
         self.broadcast(rt, "game_started", {"state": "AUCTION"})
         self.broadcast_snapshot(rt)
-        self.system_chat(rt, "The auction has begun! Good luck.")
+        self.system_chat(
+            rt,
+            f"The auction has begun! Up to {rt.effective_max_auctions()} auctions "
+            f"will run this game.",
+        )
         socketio.start_background_task(self._start_next_auction, rt, 2.0)
         return True, None
 
@@ -727,6 +751,19 @@ class GameManager:
                 return
 
             team_size = rt.team_size()
+
+            # ---- Hard cap on total auctions per game -------------------
+            max_total = rt.effective_max_auctions()
+            if max_total > 0 and rt.auction_index >= max_total:
+                self.system_chat(
+                    rt,
+                    f"Auction limit reached ({max_total} auctions) — "
+                    f"moving to battles.",
+                )
+                self._finish_auction_phase(rt)
+                return
+            # ------------------------------------------------------------
+
             incomplete = [p for p in active if len(p.team) < team_size]
 
             if not incomplete or rt.consecutive_unsold >= Config.MAX_CONSECUTIVE_UNSOLD:
@@ -776,11 +813,14 @@ class GameManager:
         with rt.lock:
             rt.auction = auction_state
             rt.consecutive_unsold = 0
+            index_now = rt.auction_index
+            limit_now = rt.effective_max_auctions()
 
         self.broadcast(rt, "auction_started", {
             "auction": {
                 "id": auction_state.auction_id,
-                "index": rt.auction_index,
+                "index": index_now,
+                "limit": limit_now,
                 "pokemon": pokemon,
                 "starting_bid": starting,
                 "current_bid": 0,
@@ -1001,6 +1041,12 @@ class GameManager:
         with rt.lock:
             if rt.state != "RESULT":
                 return
+
+            # Cap check first — if we've used every auction, end now.
+            if rt.auction_index >= rt.effective_max_auctions():
+                self._finish_auction_phase(rt)
+                return
+
             active = rt.active_players()
             team_size = rt.team_size()
             complete = all(len(p.team) >= team_size for p in active)
@@ -1072,10 +1118,6 @@ class GameManager:
         })
         self.broadcast_snapshot(rt)
 
-    # ------------------------------------------------------------------
-    # CHANGED: aggregate comparison is stored in Battle.details_json.
-    # No more BattleResult rows are created.
-    # ------------------------------------------------------------------
     def _persist_battles(self, rt, battles, leaderboard):
         try:
             with self.app.app_context():
