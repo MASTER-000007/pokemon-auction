@@ -1,5 +1,5 @@
 """HTTP routes — pages plus a small JSON API."""
-import json
+import os
 
 from flask import (Blueprint, abort, current_app, jsonify, redirect,
                    render_template, request, session, url_for)
@@ -31,7 +31,7 @@ def _current_rp(room_code):
 def _pokemon_count():
     try:
         return db.session.query(Pokemon.id).count()
-    except Exception:                              # pragma: no cover
+    except Exception:
         return 0
 
 
@@ -71,7 +71,6 @@ def create():
             "allow_mythicals": request.form.get("allow_mythicals") == "on",
             "show_balances": request.form.get("show_balances") == "on",
         }
-        # strip None so normalize_settings falls back to defaults
         raw_settings = {k: v for k, v in raw_settings.items() if v is not None}
 
         if not errors:
@@ -322,3 +321,49 @@ def api_stats():
         "pokemon_cached": _pokemon_count(),
         "active_rooms": len(manager.rooms),
     })
+
+
+# ======================================================================
+# One-shot admin route — populate the Pokémon cache from the browser
+# ======================================================================
+@main_bp.route("/admin/init-pokemon")
+def admin_init_pokemon():
+    """Populate the Pokémon database from PokéAPI.
+
+    Protect this route by setting an ``INIT_SECRET`` environment variable on
+    your host and appending ``?secret=...`` to the URL:
+
+        https://your-app.onrender.com/admin/init-pokemon?secret=abc123
+
+    Once the cache is populated, you can remove the INIT_SECRET variable
+    (or just leave the route dormant — it will do nothing if the DB is
+    already full).
+    """
+    expected = os.environ.get("INIT_SECRET")
+    provided = request.args.get("secret", "")
+
+    if not expected:
+        return jsonify({
+            "ok": False,
+            "error": "INIT_SECRET environment variable is not set on the server.",
+        }), 403
+
+    if provided != expected:
+        return jsonify({"ok": False, "error": "Forbidden."}), 403
+
+    from app.pokemon_api import populate_pokemon
+
+    limit = int(request.args.get("limit", os.environ.get("POKEMON_LIMIT", 151)))
+
+    try:
+        db.create_all()
+        populate_pokemon(limit=limit, progress=False)
+        total = _pokemon_count()
+        return jsonify({
+            "ok": True,
+            "message": f"Pokémon cache populated. Total entries: {total}",
+            "total": total,
+        })
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 500
