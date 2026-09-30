@@ -1,135 +1,32 @@
-"""Deterministic, simplified Pokémon battle & scoring engine.
+"""Deterministic, simplified Pokémon team comparison engine.
 
-This is an ORIGINAL scoring system *inspired* by Pokémon mechanics — it is not
-a re-implementation of the official battle engine.
+Teams are compared by AGGREGATE power — every stat is summed across the team,
+then a type-based modifier adjusts the score based on offensive coverage,
+defensive resistances and exploitable weaknesses. There are no 1-v-1 duels.
 """
 from app.type_chart import (TYPES, defensive_profile, offensive_coverage,
                             type_effectiveness, effectiveness_label)
-from config import Config
-
-LEVEL = Config.BATTLE_LEVEL
-MOVE_POWER = Config.BATTLE_MOVE_POWER
-MAX_TURNS = Config.BATTLE_MAX_TURNS
-STAB = Config.STAB_MULTIPLIER
 
 
 # ----------------------------------------------------------------------
-# Preparation
+# Aggregation
 # ----------------------------------------------------------------------
-def _max_hp(base_hp):
-    return 2 * base_hp + 110
-
-
-def prepare(pokemon):
-    p = dict(pokemon)
-    p["types"] = list(pokemon.get("types") or ["normal"])
-    p["max_hp"] = _max_hp(int(pokemon.get("hp", 50)))
-    p["hp_left"] = p["max_hp"]
-    p["bst"] = int(pokemon.get("bst", 0))
-
-    moves = []
-    for t in p["types"]:
-        moves.append({"type": t, "power": MOVE_POWER, "category": "physical"})
-        moves.append({"type": t, "power": MOVE_POWER, "category": "special"})
-    if not moves:
-        moves = [{"type": "normal", "power": MOVE_POWER, "category": "physical"},
-                 {"type": "normal", "power": MOVE_POWER, "category": "special"}]
-    p["moves"] = moves
-    return p
-
-
-# ----------------------------------------------------------------------
-# Damage
-# ----------------------------------------------------------------------
-def compute_damage(attacker, defender, move):
-    if move["category"] == "physical":
-        atk = max(1, int(attacker.get("attack", 1)))
-        dfn = max(1, int(defender.get("defense", 1)))
-    else:
-        atk = max(1, int(attacker.get("sp_attack", 1)))
-        dfn = max(1, int(defender.get("sp_defense", 1)))
-
-    eff = type_effectiveness(move["type"], defender["types"])
-    if eff <= 0:
-        return 0
-
-    base = ((2 * LEVEL / 5 + 2) * move["power"] * atk / dfn) / 50 + 2
-    stab = STAB if move["type"] in attacker["types"] else 1.0
-    return max(1, int(base * stab * eff))
-
-
-def choose_move(attacker, defender):
-    best_move, best_damage = attacker["moves"][0], -1
-    for move in attacker["moves"]:
-        dmg = compute_damage(attacker, defender, move)
-        if dmg > best_damage:
-            best_damage, best_move = dmg, move
-    return best_move, best_damage
-
-
-# ----------------------------------------------------------------------
-# 1 v 1 duel
-# ----------------------------------------------------------------------
-def simulate_duel(pokemon_a, pokemon_b):
-    a = prepare(pokemon_a)
-    b = prepare(pokemon_b)
-    log = []
-
-    def key(p):
-        return (p.get("speed", 0), p.get("bst", 0), p.get("id", 0))
-
-    turn = 0
-    while a["hp_left"] > 0 and b["hp_left"] > 0 and turn < MAX_TURNS:
-        turn += 1
-        order = [a, b] if key(a) >= key(b) else [b, a]
-
-        for attacker, defender in ((order[0], order[1]), (order[1], order[0])):
-            if a["hp_left"] <= 0 or b["hp_left"] <= 0:
-                break
-            move, dmg = choose_move(attacker, defender)
-            eff = type_effectiveness(move["type"], defender["types"])
-
-            if dmg <= 0:
-                log.append(f"{attacker['name']} used a {move['type'].title()} move — "
-                           f"it had no effect on {defender['name']}!")
-                continue
-
-            defender["hp_left"] = max(0, defender["hp_left"] - dmg)
-            log.append(
-                f"{attacker['name']} hit {defender['name']} with a "
-                f"{move['type'].title()} {move['category']} move for {dmg} dmg "
-                f"({effectiveness_label(eff)}) — "
-                f"{defender['name']} {defender['hp_left']}/{defender['max_hp']} HP"
-            )
-
-    if a["hp_left"] <= 0 and b["hp_left"] <= 0:
-        winner = "draw"
-    elif b["hp_left"] <= 0:
-        winner = "a"
-    elif a["hp_left"] <= 0:
-        winner = "b"
-    else:
-        pa = a["hp_left"] / a["max_hp"]
-        pb = b["hp_left"] / b["max_hp"]
-        winner = "a" if pa > pb else ("b" if pb > pa else "draw")
-        log.append(f"Turn limit reached — decided on remaining HP "
-                   f"({a['name']} {pa:.0%} vs {b['name']} {pb:.0%}).")
-
+def compute_team_stats(team):
+    """Sum every base stat across the team."""
     return {
-        "winner": winner,
-        "turns": turn,
-        "a": {"id": a.get("id"), "name": a["name"], "hp_left": a["hp_left"],
-              "max_hp": a["max_hp"], "hp_pct": a["hp_left"] / a["max_hp"]},
-        "b": {"id": b.get("id"), "name": b["name"], "hp_left": b["hp_left"],
-              "max_hp": b["max_hp"], "hp_pct": b["hp_left"] / b["max_hp"]},
-        "log": log,
+        "hp": sum(int(p.get("hp", 0)) for p in team),
+        "attack": sum(int(p.get("attack", 0)) for p in team),
+        "defense": sum(int(p.get("defense", 0)) for p in team),
+        "sp_attack": sum(int(p.get("sp_attack", 0)) for p in team),
+        "sp_defense": sum(int(p.get("sp_defense", 0)) for p in team),
+        "speed": sum(int(p.get("speed", 0)) for p in team),
+        "bst": sum(int(p.get("bst", 0)) for p in team),
+        "count": len(team),
     }
 
 
-# ----------------------------------------------------------------------
-# Team synergy / type coverage
-# ----------------------------------------------------------------------
 def team_synergy(team):
+    """Single number describing type variety vs defensive holes."""
     if not team:
         return 0
     attacking = set()
@@ -147,10 +44,28 @@ def team_synergy(team):
     return coverage * 2 + resistances + immunities * 2 - weaknesses
 
 
-def analyse_team(team):
+def compute_team_power(team):
+    """Full comparison profile for a team."""
+    empty = {
+        "stats": {"hp": 0, "attack": 0, "defense": 0, "sp_attack": 0,
+                  "sp_defense": 0, "speed": 0, "bst": 0, "count": 0},
+        "coverage": 0,
+        "coverage_types": [],
+        "weaknesses": 0,
+        "weakness_types": [],
+        "resistances": 0,
+        "resistance_types": [],
+        "immunities": 0,
+        "immunity_types": [],
+        "unique_types": 0,
+        "synergy": 0,
+        "type_modifier": 1.0,
+        "power_score": 0.0,
+    }
     if not team:
-        return {"coverage_count": 0, "weaknesses": [], "resistances": [],
-                "immunities": [], "unique_types": [], "offensive_coverage": []}
+        return empty
+
+    stats = compute_team_stats(team)
 
     attacking = set()
     defending = []
@@ -159,101 +74,176 @@ def analyse_team(team):
         attacking.update(types)
         defending.extend(types)
 
+    coverage_set = offensive_coverage(attacking)
     profile = defensive_profile(defending)
+    weakness_types = sorted([t for t, v in profile.items() if v > 1])
+    resistance_types = sorted([t for t, v in profile.items() if 0 < v < 1])
+    immunity_types = sorted([t for t, v in profile.items() if v == 0])
+
+    coverage = len(coverage_set)
+    weaknesses = len(weakness_types)
+    resistances = len(resistance_types)
+    immunities = len(immunity_types)
+    unique_types = len(attacking)
+    synergy = team_synergy(team)
+
+    # ---- Final power score ---------------------------------------------
+    # Start from raw BST, then apply a bounded type-based modifier.
+    coverage_bonus = coverage * 0.020        # 18/18 → +36%
+    resistance_bonus = resistances * 0.015   # 18 resists → +27%
+    immunity_bonus = immunities * 0.035      # each immunity is meaningful
+    weakness_penalty = weaknesses * 0.015    # 18 weaknesses → -27%
+    diversity_bonus = unique_types * 0.005   # small reward for variety
+
+    type_modifier = (
+        1.0
+        + coverage_bonus
+        + resistance_bonus
+        + immunity_bonus
+        + diversity_bonus
+        - weakness_penalty
+    )
+    # Clamp so modifiers stay reasonable
+    type_modifier = max(0.5, min(2.5, type_modifier))
+
+    power_score = round(stats["bst"] * type_modifier, 2)
+
     return {
-        "unique_types": sorted(attacking),
-        "unique_type_count": len(attacking),
-        "offensive_coverage": sorted(offensive_coverage(attacking)),
-        "coverage_count": len(offensive_coverage(attacking)),
-        "weaknesses": sorted([t for t, v in profile.items() if v > 1]),
-        "resistances": sorted([t for t, v in profile.items() if 0 < v < 1]),
-        "immunities": sorted([t for t, v in profile.items() if v == 0]),
-        "synergy": team_synergy(team),
+        "stats": stats,
+        "coverage": coverage,
+        "coverage_types": sorted(coverage_set),
+        "weaknesses": weaknesses,
+        "weakness_types": weakness_types,
+        "resistances": resistances,
+        "resistance_types": resistance_types,
+        "immunities": immunities,
+        "immunity_types": immunity_types,
+        "unique_types": unique_types,
+        "synergy": synergy,
+        "type_modifier": round(type_modifier, 3),
+        "power_score": power_score,
+    }
+
+
+def analyse_team(team):
+    """Human-readable breakdown used by the results page."""
+    info = compute_team_power(team)
+    return {
+        "unique_types": sorted({t for p in team for t in (p.get("types") or [])}),
+        "unique_type_count": info["unique_types"],
+        "offensive_coverage": info["coverage_types"],
+        "coverage_count": info["coverage"],
+        "weaknesses": info["weakness_types"],
+        "resistances": info["resistance_types"],
+        "immunities": info["immunity_types"],
+        "synergy": info["synergy"],
+        "power_score": info["power_score"],
     }
 
 
 # ----------------------------------------------------------------------
-# Team battle
+# Head-to-head comparison
 # ----------------------------------------------------------------------
+STAT_ORDER = ["hp", "attack", "defense", "sp_attack", "sp_defense", "speed"]
+STAT_LABELS = {
+    "hp": "HP",
+    "attack": "Attack",
+    "defense": "Defense",
+    "sp_attack": "Sp. Atk",
+    "sp_defense": "Sp. Def",
+    "speed": "Speed",
+}
+
+
 def simulate_team_battle(team_a, team_b, name_a="Team A", name_b="Team B"):
-    slots = min(len(team_a), len(team_b))
-    wins_a = wins_b = draws = 0
-    hp_a_total = hp_b_total = 0.0
-    details = []
+    """Compare two teams by aggregate power score. Fully deterministic."""
+    info_a = compute_team_power(team_a)
+    info_b = compute_team_power(team_b)
 
-    for i in range(slots):
-        result = simulate_duel(team_a[i], team_b[i])
-        hp_a_total += result["a"]["hp_pct"]
-        hp_b_total += result["b"]["hp_pct"]
+    stats_a = info_a["stats"]
+    stats_b = info_b["stats"]
+    score_a = info_a["power_score"]
+    score_b = info_b["power_score"]
 
-        if result["winner"] == "a":
+    # ---- per-stat category wins (used as a tiebreak & for the UI) -----
+    wins_a = 0
+    wins_b = 0
+    draws = 0
+    per_stat = []
+
+    for key in STAT_ORDER:
+        va = stats_a.get(key, 0)
+        vb = stats_b.get(key, 0)
+        if va > vb:
             wins_a += 1
-        elif result["winner"] == "b":
+            winner = "a"
+        elif vb > va:
             wins_b += 1
+            winner = "b"
         else:
             draws += 1
-
-        details.append({
-            "slot": i + 1,
-            "a": {"id": result["a"]["id"], "name": result["a"]["name"],
-                  "hp_pct": round(result["a"]["hp_pct"] * 100, 1)},
-            "b": {"id": result["b"]["id"], "name": result["b"]["name"],
-                  "hp_pct": round(result["b"]["hp_pct"] * 100, 1)},
-            "winner": result["winner"],
-            "turns": result["turns"],
-            "log": result["log"],
+            winner = "draw"
+        per_stat.append({
+            "key": key,
+            "label": STAT_LABELS[key],
+            "a": va,
+            "b": vb,
+            "winner": winner,
+            "diff": va - vb,
         })
 
-    hp_a_pct = (hp_a_total / slots * 100) if slots else 0.0
-    hp_b_pct = (hp_b_total / slots * 100) if slots else 0.0
-
+    # ---- overall winner -------------------------------------------------
     tiebreak = ""
-    if wins_a > wins_b:
+    if score_a > score_b:
         winner = "a"
-    elif wins_b > wins_a:
+    elif score_b > score_a:
         winner = "b"
-    elif hp_a_pct > hp_b_pct + 0.001:
-        winner, tiebreak = "a", "remaining HP"
-    elif hp_b_pct > hp_a_pct + 0.001:
-        winner, tiebreak = "b", "remaining HP"
+    elif stats_a["bst"] > stats_b["bst"]:
+        winner = "a"
+        tiebreak = "total base stats"
+    elif stats_b["bst"] > stats_a["bst"]:
+        winner = "b"
+        tiebreak = "total base stats"
+    elif info_a["synergy"] > info_b["synergy"]:
+        winner = "a"
+        tiebreak = "team synergy"
+    elif info_b["synergy"] > info_a["synergy"]:
+        winner = "b"
+        tiebreak = "team synergy"
     else:
-        syn_a = team_synergy(team_a)
-        syn_b = team_synergy(team_b)
-        if syn_a > syn_b:
-            winner, tiebreak = "a", "team synergy"
-        elif syn_b > syn_a:
-            winner, tiebreak = "b", "team synergy"
-        else:
-            bst_a = sum(int(p.get("bst", 0)) for p in team_a)
-            bst_b = sum(int(p.get("bst", 0)) for p in team_b)
-            if bst_a > bst_b:
-                winner, tiebreak = "a", "total base stat"
-            elif bst_b > bst_a:
-                winner, tiebreak = "b", "total base stat"
-            else:
-                winner, tiebreak = "a", "seed order"
+        winner = "a" if name_a.lower() <= name_b.lower() else "b"
+        tiebreak = "seed order"
+
+    total_score = score_a + score_b
+    hp_a_pct = round(100 * score_a / total_score, 2) if total_score else 0.0
+    hp_b_pct = round(100 * score_b / total_score, 2) if total_score else 0.0
 
     return {
         "winner": winner,
-        "wins_a": wins_a,
+        "score_a": score_a,
+        "score_b": score_b,
+        "wins_a": wins_a,          # stat categories won
         "wins_b": wins_b,
         "draws": draws,
-        "hp_a_pct": round(hp_a_pct, 2),
-        "hp_b_pct": round(hp_b_pct, 2),
-        "synergy_a": team_synergy(team_a),
-        "synergy_b": team_synergy(team_b),
+        "hp_a_pct": hp_a_pct,
+        "hp_b_pct": hp_b_pct,
+        "synergy_a": info_a["synergy"],
+        "synergy_b": info_b["synergy"],
+        "stats_a": stats_a,
+        "stats_b": stats_b,
+        "power_a": info_a,
+        "power_b": info_b,
+        "per_stat": per_stat,
         "tiebreak": tiebreak,
-        "slots": details,
         "name_a": name_a,
         "name_b": name_b,
     }
 
 
 # ----------------------------------------------------------------------
-# Round-robin tournament
+# Round-robin tournament (interface unchanged)
 # ----------------------------------------------------------------------
 def run_tournament(participants):
-    ids = [p["id"] for p in participants]
     standings = {
         p["id"]: {
             "id": p["id"],
