@@ -1,12 +1,19 @@
-"""Pokémon Auction — application entry point."""
-import os
+"""Pokémon Auction — application entry point (development server).
 
-from app import create_app, socketio
+Same monkey-patching rule applies here as in wsgi.py: eventlet must patch
+the standard library before Flask, SQLAlchemy or Werkzeug get imported.
+"""
+import eventlet
+eventlet.monkey_patch()
+
+import os                                      # noqa: E402
+
+from app import create_app, socketio           # noqa: E402
 
 app = create_app()
 
 # Start the idle-room janitor once (guarded internally).
-from app.game_engine import manager  # noqa: E402
+from app.game_engine import manager            # noqa: E402
 manager.start_janitor()
 
 
