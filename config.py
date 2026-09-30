@@ -38,9 +38,8 @@ class Config:
     SQLALCHEMY_DATABASE_URI = _normalize_db_url(os.environ.get("DATABASE_URL"))
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    # IMPORTANT: NullPool avoids a known incompatibility between SQLAlchemy's
-    # QueuePool and eventlet's monkey-patching. Without it, the app crashes with
-    # "RuntimeError: cannot notify on un-acquired lock" under gunicorn+eventlet.
+    # NullPool avoids a known incompatibility between SQLAlchemy's QueuePool
+    # and eventlet's monkey-patching.
     SQLALCHEMY_ENGINE_OPTIONS = {
         "poolclass": NullPool,
     }
@@ -63,6 +62,11 @@ class Config:
     ALLOW_LEGENDARIES = _bool(os.environ.get("ALLOW_LEGENDARIES"), True)
     ALLOW_MYTHICALS = _bool(os.environ.get("ALLOW_MYTHICALS"), True)
     SHOW_PLAYER_BALANCES = _bool(os.environ.get("SHOW_PLAYER_BALANCES"), True)
+
+    # 0 = auto (active_players * team_size * 2). Any positive value caps the
+    # auction phase to that many auctions per game, so the game never runs
+    # forever even if some auctions go unsold.
+    MAX_TOTAL_AUCTIONS = _int(os.environ.get("MAX_TOTAL_AUCTIONS"), 0)
 
     # ------------------------------------------------------------------
     # Auction value formula (configurable in ONE place)
