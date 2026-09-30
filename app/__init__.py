@@ -4,6 +4,7 @@ import os
 from flask import Flask, jsonify, render_template, request
 from flask_socketio import SocketIO
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.pool import NullPool
 
 from config import Config
 
@@ -26,15 +27,28 @@ def create_app(config_class=Config):
     )
     app.config.from_object(config_class)
 
-    # SQLite needs check_same_thread=False because Socket.IO uses threads.
+    # ------------------------------------------------------------------
+    # Engine options
+    # NullPool is mandatory under eventlet (see config.py for the reason).
+    # For SQLite we also need check_same_thread=False.
+    # ------------------------------------------------------------------
+    opts = dict(app.config.get("SQLALCHEMY_ENGINE_OPTIONS", {}))
+    opts.setdefault("poolclass", NullPool)
+
     if str(app.config["SQLALCHEMY_DATABASE_URI"]).startswith("sqlite"):
-        opts = dict(app.config.get("SQLALCHEMY_ENGINE_OPTIONS", {}))
         opts["connect_args"] = {"check_same_thread": False}
-        app.config["SQLALCHEMY_ENGINE_OPTIONS"] = opts
+
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = opts
 
     db.init_app(app)
-    socketio.init_app(app, async_mode="threading", manage_session=True,
-                      cors_allowed_origins="*", logger=False, engineio_logger=False)
+    socketio.init_app(
+        app,
+        async_mode="eventlet",
+        manage_session=True,
+        cors_allowed_origins="*",
+        logger=False,
+        engineio_logger=False,
+    )
 
     # ---- models must be imported before create_all -------------------
     from app import models  # noqa: F401
