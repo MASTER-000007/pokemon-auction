@@ -185,7 +185,10 @@ def results(room_code):
     if game:
         leaderboard = game.leaderboard
         for b in game.battles:
+            details = b.details or {}
             battles.append({
+                "player_a_id": b.player_a_id,
+                "player_b_id": b.player_b_id,
                 "name_a": b.name_a,
                 "name_b": b.name_b,
                 "wins_a": b.wins_a,
@@ -195,18 +198,13 @@ def results(room_code):
                 "hp_a_pct": b.hp_a_pct,
                 "hp_b_pct": b.hp_b_pct,
                 "tiebreak": b.tiebreak,
-                "slots": [{
-                    "slot": r.slot,
-                    "name_a": r.name_a,
-                    "name_b": r.name_b,
-                    "pokemon_a_id": r.pokemon_a_id,
-                    "pokemon_b_id": r.pokemon_b_id,
-                    "winner": r.winner,
-                    "turns": r.turns,
-                    "hp_a_pct": r.hp_a_pct,
-                    "hp_b_pct": r.hp_b_pct,
-                    "log": r.log,
-                } for r in b.results],
+                "score_a": details.get("score_a", 0),
+                "score_b": details.get("score_b", 0),
+                "stats_a": details.get("stats_a", {}),
+                "stats_b": details.get("stats_b", {}),
+                "power_a": details.get("power_a", {}),
+                "power_b": details.get("power_b", {}),
+                "per_stat": details.get("per_stat", []),
             })
 
     for rp in room.room_players:
@@ -328,8 +326,6 @@ def api_stats():
 # ======================================================================
 # Admin: background Pokémon cache population
 # ======================================================================
-# Simple process-wide progress tracker. Single worker means one fetch at a
-# time, which is exactly what we want — the DB writes are serialised anyway.
 _INIT_STATE = {
     "running": False,
     "started_at": None,
@@ -342,7 +338,6 @@ _INIT_STATE = {
 
 
 def _run_init_in_thread(app, limit):
-    """Background worker: runs inside a Flask app context so SQLAlchemy works."""
     with app.app_context():
         try:
             from app.pokemon_api import populate_pokemon
@@ -356,23 +351,12 @@ def _run_init_in_thread(app, limit):
 
 @main_bp.route("/admin/init-pokemon")
 def admin_init_pokemon():
-    """Start a background Pokémon cache fetch.
-
-    Usage:
-        /admin/init-pokemon?secret=XXX&limit=1025
-
-    The request returns immediately. Poll ``/admin/init-pokemon/status``
-    to watch progress. Safe to call multiple times — it resumes.
-    """
     expected = os.environ.get("INIT_SECRET")
     provided = request.args.get("secret", "")
 
     if not expected:
-        return jsonify({
-            "ok": False,
-            "error": "INIT_SECRET is not set on the server.",
-        }), 403
-
+        return jsonify({"ok": False,
+                        "error": "INIT_SECRET is not set on the server."}), 403
     if provided != expected:
         return jsonify({"ok": False, "error": "Forbidden."}), 403
 
@@ -409,8 +393,7 @@ def admin_init_pokemon():
         "ok": True,
         "message": (
             f"Fetch started in the background for up to {limit} Pokémon. "
-            f"{initial} already cached. Poll the status URL below — it will "
-            f"take roughly 5–10 minutes. You can close this tab."
+            f"{initial} already cached. Poll the status URL below."
         ),
         "initial_count": initial,
         "limit": limit,
@@ -420,7 +403,6 @@ def admin_init_pokemon():
 
 @main_bp.route("/admin/init-pokemon/status")
 def admin_init_pokemon_status():
-    """Return progress of the background fetch."""
     expected = os.environ.get("INIT_SECRET")
     provided = request.args.get("secret", "")
 
