@@ -5,7 +5,7 @@
 <div class="results" data-room="{{ room_code }}">
 
   <div class="results-head">
-    <h1 class="page-title">Auction &amp; Battle Results</h1>
+    <h1 class="page-title">Auction &amp; Team Comparison Results</h1>
     <a class="btn btn-ghost" href="{{ url_for('main.leaderboard', room_code=room_code) }}">
       Final Leaderboard →
     </a>
@@ -47,6 +47,7 @@
             </div>
             <div class="team-analysis">
               <div><b>Coverage:</b> {{ team.analysis.coverage_count }}/18 types</div>
+              <div><b>Power Score:</b> {{ team.analysis.power_score }}</div>
               <div class="tag-row">
                 {% for t in team.analysis.weaknesses %}<span class="tag tag-weak">{{ t }}</span>{% endfor %}
               </div>
@@ -60,32 +61,88 @@
     </section>
 
     <section class="panel">
-      <h2 class="panel-title">Matchups</h2>
+      <h2 class="panel-title">Head-to-Head Comparisons</h2>
       <div class="battles">
         {% for b in battles %}
           <details class="battle-card">
             <summary>
-              <span class="battle-names">{{ b.name_a }} <em>vs</em> {{ b.name_b }}</span>
-              <span class="battle-score">{{ b.wins_a }} – {{ b.wins_b }}{% if b.draws %} ({{ b.draws }}D){% endif %}</span>
+              <span class="battle-names">
+                <b class="{% if b.winner_id == b.player_a_id %}winner-name{% endif %}">{{ b.name_a }}</b>
+                <em>vs</em>
+                <b class="{% if b.winner_id == b.player_b_id %}winner-name{% endif %}">{{ b.name_b }}</b>
+              </span>
+              <span class="battle-score">{{ b.score_a }} – {{ b.score_b }}</span>
             </summary>
             <div class="battle-body">
               {% if b.tiebreak %}
                 <p class="muted small">Tie broken by {{ b.tiebreak }}.</p>
               {% endif %}
-              <p class="muted small">Remaining HP — {{ b.name_a }}: {{ b.hp_a_pct }}% ·
-                 {{ b.name_b }}: {{ b.hp_b_pct }}%</p>
-              {% for s in b.slots %}
-                <details class="duel">
-                  <summary>
-                    Slot {{ s.slot }}: {{ s.name_a }} vs {{ s.name_b }}
-                    — <b>{% if s.winner == 'a' %}{{ s.name_a }}{% elif s.winner == 'b' %}{{ s.name_b }}{% else %}Draw{% endif %}</b>
-                    wins ({{ s.turns }} turns)
-                  </summary>
-                  <ul class="duel-log">
-                    {% for line in s.log %}<li>{{ line }}</li>{% endfor %}
-                  </ul>
-                </details>
-              {% endfor %}
+
+              <div class="score-summary">
+                <div class="score-side {% if b.winner_id == b.player_a_id %}winning{% endif %}">
+                  <span class="score-name">{{ b.name_a }}</span>
+                  <span class="score-value">{{ b.score_a }}</span>
+                </div>
+                <div class="score-vs">vs</div>
+                <div class="score-side {% if b.winner_id == b.player_b_id %}winning{% endif %}">
+                  <span class="score-name">{{ b.name_b }}</span>
+                  <span class="score-value">{{ b.score_b }}</span>
+                </div>
+              </div>
+
+              <table class="stats-comparison">
+                <thead>
+                  <tr>
+                    <th>Stat</th>
+                    <th>{{ b.name_a }}</th>
+                    <th>{{ b.name_b }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in b.per_stat %}
+                    <tr>
+                      <td>{{ row.label }}</td>
+                      <td class="{% if row.winner == 'a' %}stat-win{% endif %}">{{ row.a }}</td>
+                      <td class="{% if row.winner == 'b' %}stat-win{% endif %}">{{ row.b }}</td>
+                    </tr>
+                  {% endfor %}
+                  <tr class="total-row">
+                    <td>Total BST</td>
+                    <td>{{ b.stats_a.bst }}</td>
+                    <td>{{ b.stats_b.bst }}</td>
+                  </tr>
+                  <tr>
+                    <td>Type coverage</td>
+                    <td>{{ b.power_a.coverage }}/18</td>
+                    <td>{{ b.power_b.coverage }}/18</td>
+                  </tr>
+                  <tr>
+                    <td>Weaknesses</td>
+                    <td>{{ b.power_a.weaknesses }}</td>
+                    <td>{{ b.power_b.weaknesses }}</td>
+                  </tr>
+                  <tr>
+                    <td>Resistances</td>
+                    <td>{{ b.power_a.resistances }}</td>
+                    <td>{{ b.power_b.resistances }}</td>
+                  </tr>
+                  <tr>
+                    <td>Immunities</td>
+                    <td>{{ b.power_a.immunities }}</td>
+                    <td>{{ b.power_b.immunities }}</td>
+                  </tr>
+                  <tr class="total-row">
+                    <td>Type modifier</td>
+                    <td>×{{ b.power_a.type_modifier }}</td>
+                    <td>×{{ b.power_b.type_modifier }}</td>
+                  </tr>
+                  <tr class="score-row">
+                    <td><b>Power Score</b></td>
+                    <td class="{% if b.winner_id == b.player_a_id %}stat-win{% endif %}"><b>{{ b.score_a }}</b></td>
+                    <td class="{% if b.winner_id == b.player_b_id %}stat-win{% endif %}"><b>{{ b.score_b }}</b></td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </details>
         {% endfor %}
