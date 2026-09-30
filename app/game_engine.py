@@ -1,9 +1,4 @@
-"""Authoritative, in-memory game runtime.
-
-Everything that matters (coins, teams, auctions, timers, state machine) lives
-here.  The database is written alongside so a game can be reconstructed after a
-process restart.
-"""
+"""Authoritative, in-memory game runtime."""
 import json
 import math
 import random
@@ -70,7 +65,7 @@ class AuctionState:
         self.current_bidder = None
         self.duration = int(duration)
         self.ends_at = ends_at if ends_at is not None else time.time() + self.duration
-        self.bids = []            # list of {name, amount, ts}
+        self.bids = []
         self.resolved = False
         self.extensions = 0
 
@@ -87,7 +82,7 @@ class RoomRuntime:
         self.host_rp_id = host_rp_id
         self.state = state
 
-        self.players = {}          # rp_id -> PlayerState
+        self.players = {}
         self.lock = threading.RLock()
         self.auction = None
         self.used_pokemon = set()
@@ -102,7 +97,6 @@ class RoomRuntime:
         self.last_activity = time.time()
         self.timer_running = False
 
-    # ------------------------------------------------------------------
     def touch(self):
         self.last_activity = time.time()
 
@@ -121,7 +115,6 @@ class RoomRuntime:
     def team_size(self):
         return int(self.settings.get("team_size", Config.TEAM_SIZE))
 
-    # ------------------------------------------------------------------
     def lobby_payload(self):
         return {
             "room": {
@@ -216,16 +209,12 @@ class GameManager:
     def init_app(self, app):
         self.app = app
 
-    # ------------------------------------------------------------------
-    # Room helpers
-    # ------------------------------------------------------------------
     def get_room(self, code):
         if not code:
             return None
         return self.rooms.get(str(code).upper())
 
     def _load_pool(self):
-        """Cache the full Pokémon table as dicts (loaded once per process)."""
         if self._pool is None:
             with self.app.app_context():
                 rows = Pokemon.query.all()
@@ -235,7 +224,6 @@ class GameManager:
     def invalidate_pool(self):
         self._pool = None
 
-    # ------------------------------------------------------------------
     def normalize_settings(self, raw):
         raw = raw or {}
         max_players = clamp(int(raw.get("max_players", Config.MAX_PLAYERS)),
@@ -261,9 +249,6 @@ class GameManager:
             "show_balances": bool(raw.get("show_balances", Config.SHOW_PLAYER_BALANCES)),
         }
 
-    # ------------------------------------------------------------------
-    # Create / join
-    # ------------------------------------------------------------------
     def create_room(self, host_name, raw_settings=None):
         name = sanitize_name(host_name, Config.NAME_MAX_LENGTH)
         if not name:
@@ -272,12 +257,11 @@ class GameManager:
         settings = self.normalize_settings(raw_settings)
 
         with self.app.app_context():
-            # unique code
             for _ in range(40):
                 code = generate_room_code()
                 if not Room.query.filter_by(code=code).first():
                     break
-            else:                                  # pragma: no cover
+            else:
                 return None, "Could not allocate a room code. Try again."
 
             player = Player(name=name, session_token=generate_session_token())
@@ -313,7 +297,6 @@ class GameManager:
                 "name": name,
             }, None
 
-    # ------------------------------------------------------------------
     def join_room(self, code, name, existing_player_id=None):
         code = str(code or "").strip().upper()
         name = sanitize_name(name, Config.NAME_MAX_LENGTH)
@@ -367,9 +350,7 @@ class GameManager:
                         "player_id": player.id, "session_token": player.session_token,
                         "name": name}, None
 
-    # ------------------------------------------------------------------
     def _load_room_from_db(self, code):
-        """Rebuild runtime state after a process restart / cache eviction."""
         try:
             with self.app.app_context():
                 room = Room.query.filter_by(code=code, is_active=True).first()
@@ -416,14 +397,11 @@ class GameManager:
                     rt.leaderboard = game.leaderboard
 
                 return rt
-        except Exception as exc:                   # pragma: no cover
+        except Exception as exc:
             if self.app:
                 self.app.logger.warning("Could not restore room %s: %s", code, exc)
             return None
 
-    # ------------------------------------------------------------------
-    # Connecting / disconnecting
-    # ------------------------------------------------------------------
     def attach_socket(self, code, rp_id, sid):
         rt = self.get_room(code)
         if not rt:
@@ -467,14 +445,13 @@ class GameManager:
                 if rp:
                     rp.is_connected = connected
                     db.session.commit()
-        except Exception:                          # pragma: no cover
+        except Exception:
             pass
 
     def _schedule_host_check(self, rt):
         def worker():
             time.sleep(Config.HOST_TRANSFER_GRACE)
             self.maybe_transfer_host(rt.code)
-
         socketio.start_background_task(worker)
 
     def maybe_transfer_host(self, code):
@@ -494,7 +471,6 @@ class GameManager:
             new_host.is_host = True
             rt.host_rp_id = new_host.rp_id
             self._persist_host(rt)
-
         self.broadcast(rt, "host_changed",
                        {"host": new_host.rp_id, "name": new_host.name})
 
@@ -507,26 +483,16 @@ class GameManager:
                 for rp in RoomPlayer.query.filter_by(room_id=rt.room_id).all():
                     rp.is_host = (rp.id == rt.host_rp_id)
                 db.session.commit()
-        except Exception:                          # pragma: no cover
+        except Exception:
             db.session.rollback()
 
-    # ------------------------------------------------------------------
-    # Broadcasting
-    # ------------------------------------------------------------------
     def broadcast(self, rt, event, payload):
-        """Broadcast a *room-agnostic* event to every client in the room."""
         try:
             socketio.emit(event, payload, to=rt.code)
-        except Exception:                          # pragma: no cover
+        except Exception:
             pass
 
     def broadcast_snapshot(self, rt):
-        """Send each connected player their OWN personalised snapshot.
-
-        Critical: `state_sync` carries per-player data (`you`), so it must be
-        delivered with `to=sid` (a socket's private room) — never with
-        `to=rt.code`, or the last player's snapshot overwrites everyone else's.
-        """
         for rp_id, p in list(rt.players.items()):
             if p.sids:
                 self.emit_snapshot(rt, rp_id)
@@ -539,12 +505,9 @@ class GameManager:
         for sid in list(p.sids):
             try:
                 socketio.emit("state_sync", data, to=sid)
-            except Exception:                      # pragma: no cover
+            except Exception:
                 pass
 
-    # ------------------------------------------------------------------
-    # Settings
-    # ------------------------------------------------------------------
     def update_settings(self, code, rp_id, raw_settings):
         rt = self.get_room(code)
         if not rt:
@@ -569,12 +532,9 @@ class GameManager:
                 if room:
                     room.settings = rt.settings
                     db.session.commit()
-        except Exception:                          # pragma: no cover
+        except Exception:
             db.session.rollback()
 
-    # ------------------------------------------------------------------
-    # Kick / end
-    # ------------------------------------------------------------------
     def kick_player(self, code, host_rp_id, target_rp_id):
         rt = self.get_room(code)
         if not rt:
@@ -604,7 +564,7 @@ class GameManager:
                     rp.is_kicked = True
                     rp.is_connected = False
                     db.session.commit()
-        except Exception:                          # pragma: no cover
+        except Exception:
             db.session.rollback()
 
     def end_room(self, code, rp_id):
@@ -631,12 +591,9 @@ class GameManager:
                     if rt.state == "FINISHED":
                         room.is_active = False
                     db.session.commit()
-        except Exception:                          # pragma: no cover
+        except Exception:
             db.session.rollback()
 
-    # ------------------------------------------------------------------
-    # Chat
-    # ------------------------------------------------------------------
     def add_chat(self, code, rp_id, text):
         rt = self.get_room(code)
         if not rt:
@@ -672,9 +629,6 @@ class GameManager:
             rt.chat = rt.chat[-Config.CHAT_HISTORY:]
         self.broadcast(rt, "chat_message", message)
 
-    # ------------------------------------------------------------------
-    # Game start
-    # ------------------------------------------------------------------
     def start_game(self, code, rp_id):
         rt = self.get_room(code)
         if not rt:
@@ -712,7 +666,6 @@ class GameManager:
         self.broadcast(rt, "game_started", {"state": "AUCTION"})
         self.broadcast_snapshot(rt)
         self.system_chat(rt, "The auction has begun! Good luck.")
-
         socketio.start_background_task(self._start_next_auction, rt, 2.0)
         return True, None
 
@@ -722,19 +675,10 @@ class GameManager:
                 rp.coins = rt.settings["starting_coins"]
                 PlayerPokemon.query.filter_by(room_player_id=rp.id).delete()
             db.session.commit()
-        except Exception:                          # pragma: no cover
+        except Exception:
             db.session.rollback()
 
-    # ------------------------------------------------------------------
-    # Auction loop
-    # ------------------------------------------------------------------
     def _pick_pokemon(self, rt, max_coins=None):
-        """Pick a random eligible Pokémon.
-
-        When ``max_coins`` is provided, only Pokémon whose starting bid is
-        affordable by at least one incomplete-team player are considered.
-        Returns ``None`` when nothing can be auctioned.
-        """
         pool = self._load_pool()
         if not pool:
             return None
@@ -752,18 +696,15 @@ class GameManager:
                 return False
             return True
 
-        # Pass 1 — not recently seen
         candidates = [p for p in pool
                       if _eligible(p) and p["id"] not in rt.recent_pokemon]
 
-        # Pass 2 — if duplicates are allowed, relax the "recent" filter
         if not candidates and allow_dup:
             candidates = [p for p in pool if _eligible(p)]
 
         if not candidates:
             return None
 
-        # Filter by affordability when asked
         if max_coins is not None:
             affordable = [p for p in candidates
                           if starting_bid_for(p) <= max_coins]
@@ -788,26 +729,20 @@ class GameManager:
             team_size = rt.team_size()
             incomplete = [p for p in active if len(p.team) < team_size]
 
-            # Case 1 — everyone is full or the unsold limit has tripped.
             if not incomplete or rt.consecutive_unsold >= Config.MAX_CONSECUTIVE_UNSOLD:
                 self._finish_auction_phase(rt)
                 return
 
-            # Case 2 — nobody who still needs a Pokémon can afford anything.
             max_coins = max(p.coins for p in incomplete)
             pokemon = self._pick_pokemon(rt, max_coins=max_coins)
 
             if not pokemon:
                 if max_coins < Config.VALUE_MIN_STARTING_BID:
                     self.system_chat(
-                        rt,
-                        "No player can afford the minimum bid — ending the auction.",
-                    )
+                        rt, "No player can afford the minimum bid — ending the auction.")
                 else:
                     self.system_chat(
-                        rt,
-                        "No more Pokémon can be auctioned — ending the auction.",
-                    )
+                        rt, "No more Pokémon can be auctioned — ending the auction.")
                 self._finish_auction_phase(rt)
                 return
 
@@ -820,7 +755,6 @@ class GameManager:
             auction_state = AuctionState(0, pokemon, starting,
                                          rt.settings["auction_duration"])
 
-        # ---- persist ------------------------------------------------
         try:
             with self.app.app_context():
                 row = Auction(
@@ -836,7 +770,7 @@ class GameManager:
                 db.session.add(row)
                 db.session.commit()
                 auction_state.auction_id = row.id
-        except Exception:                          # pragma: no cover
+        except Exception:
             db.session.rollback()
 
         with rt.lock:
@@ -887,9 +821,6 @@ class GameManager:
 
         socketio.start_background_task(loop)
 
-    # ------------------------------------------------------------------
-    # Bidding
-    # ------------------------------------------------------------------
     def place_bid(self, code, rp_id, amount):
         rt = self.get_room(code)
         if not rt:
@@ -927,7 +858,6 @@ class GameManager:
             if not ok:
                 return False, error, None
 
-            # ---- anti-snipe -----------------------------------------
             extended = False
             remaining = auction.ends_at - now
             anti_snipe = rt.settings.get("anti_snipe_enabled", True)
@@ -954,7 +884,6 @@ class GameManager:
             quick = quick_bid_amounts(value, auction.starting_bid, player.coins,
                                       rt.settings["min_bid_increment"])
 
-        # ---- persist the bid -----------------------------------------
         try:
             with self.app.app_context():
                 row = db.session.get(Auction, auction_id)
@@ -965,7 +894,7 @@ class GameManager:
                     db.session.add(Bid(auction_id=auction_id,
                                        room_player_id=rp_id, amount=value))
                     db.session.commit()
-        except Exception:                          # pragma: no cover
+        except Exception:
             db.session.rollback()
 
         self.broadcast(rt, "bid_placed", {
@@ -992,9 +921,6 @@ class GameManager:
             "quick_bids": quick,
         }
 
-    # ------------------------------------------------------------------
-    # Resolve
-    # ------------------------------------------------------------------
     def _resolve_auction(self, rt, auction_id):
         with rt.lock:
             auction = rt.auction
@@ -1016,7 +942,6 @@ class GameManager:
 
             pokemon = auction.pokemon
 
-        # ---- persist result -----------------------------------------
         try:
             with self.app.app_context():
                 row = db.session.get(Auction, auction_id)
@@ -1036,7 +961,7 @@ class GameManager:
                             price=price,
                         ))
                     db.session.commit()
-        except Exception:                          # pragma: no cover
+        except Exception:
             db.session.rollback()
 
         self.broadcast(rt, "auction_ended", {
@@ -1091,9 +1016,6 @@ class GameManager:
         self.broadcast(rt, "state_changed", {"state": "AUCTION"})
         self._start_next_auction(rt, 0.5)
 
-    # ------------------------------------------------------------------
-    # Auction phase finished -> battles
-    # ------------------------------------------------------------------
     def _finish_auction_phase(self, rt):
         with rt.lock:
             if rt.state in ("BATTLE", "FINISHED"):
@@ -1103,7 +1025,7 @@ class GameManager:
 
         self._persist_room_state(rt)
         self.broadcast(rt, "auction_complete", {"state": "BATTLE"})
-        self.system_chat(rt, "Auction complete — running team battles…")
+        self.system_chat(rt, "Auction complete — comparing teams…")
         self.broadcast_snapshot(rt)
 
         socketio.start_background_task(self._run_battles, rt)
@@ -1150,6 +1072,10 @@ class GameManager:
         })
         self.broadcast_snapshot(rt)
 
+    # ------------------------------------------------------------------
+    # CHANGED: aggregate comparison is stored in Battle.details_json.
+    # No more BattleResult rows are created.
+    # ------------------------------------------------------------------
     def _persist_battles(self, rt, battles, leaderboard):
         try:
             with self.app.app_context():
@@ -1161,6 +1087,10 @@ class GameManager:
 
                 for battle in battles:
                     res = battle["result"]
+                    total = res["score_a"] + res["score_b"]
+                    hp_a_pct = round(100 * res["score_a"] / total, 2) if total else 0.0
+                    hp_b_pct = round(100 * res["score_b"] / total, 2) if total else 0.0
+
                     row = Battle(
                         game_id=game.id,
                         player_a_id=battle["player_a"],
@@ -1171,37 +1101,25 @@ class GameManager:
                         wins_b=res["wins_b"],
                         draws=res["draws"],
                         winner_id=battle["winner_id"],
-                        hp_a_pct=res["hp_a_pct"],
-                        hp_b_pct=res["hp_b_pct"],
+                        hp_a_pct=hp_a_pct,
+                        hp_b_pct=hp_b_pct,
                         tiebreak=res["tiebreak"],
                     )
                     row.details = {
-                        "synergy_a": res["synergy_a"],
-                        "synergy_b": res["synergy_b"],
+                        "score_a": res["score_a"],
+                        "score_b": res["score_b"],
+                        "stats_a": res["stats_a"],
+                        "stats_b": res["stats_b"],
+                        "power_a": res["power_a"],
+                        "power_b": res["power_b"],
+                        "per_stat": res["per_stat"],
                         "name_a": res["name_a"],
                         "name_b": res["name_b"],
                     }
                     db.session.add(row)
-                    db.session.flush()
-
-                    for slot in res["slots"]:
-                        br = BattleResult(
-                            battle_id=row.id,
-                            slot=slot["slot"],
-                            pokemon_a_id=slot["a"]["id"],
-                            pokemon_b_id=slot["b"]["id"],
-                            name_a=slot["a"]["name"],
-                            name_b=slot["b"]["name"],
-                            winner=slot["winner"],
-                            turns=slot["turns"],
-                            hp_a_pct=slot["a"]["hp_pct"],
-                            hp_b_pct=slot["b"]["hp_pct"],
-                        )
-                        br.log = slot["log"]
-                        db.session.add(br)
 
                 db.session.commit()
-        except Exception as exc:                   # pragma: no cover
+        except Exception as exc:
             db.session.rollback()
             if self.app:
                 self.app.logger.warning("Could not persist battles: %s", exc)
@@ -1222,12 +1140,9 @@ class GameManager:
                     room.state = "FINISHED"
                     room.is_active = False
                 db.session.commit()
-        except Exception:                          # pragma: no cover
+        except Exception:
             db.session.rollback()
 
-    # ------------------------------------------------------------------
-    # Read helpers for HTTP routes
-    # ------------------------------------------------------------------
     def room_public_state(self, code):
         rt = self.get_room(code)
         if rt:
@@ -1242,9 +1157,6 @@ class GameManager:
         with rt.lock:
             return rt.snapshot(rp_id)
 
-    # ------------------------------------------------------------------
-    # Janitor
-    # ------------------------------------------------------------------
     def start_janitor(self):
         if self._janitor_started or not self.app:
             return
