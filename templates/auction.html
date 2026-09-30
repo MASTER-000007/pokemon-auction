@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Auction {{ room_code }} — Pokémon Auction{% endblock %}
+{% block body_class %}auction-body{% endblock %}
+
+{% block topbar_right %}
+<span class="pill" id="stateBadge">AUCTION</span>
+<button class="btn btn-ghost btn-sm" id="chatToggle">💬 Chat</button>
+{% endblock %}
+
+{% block content %}
+<div class="auction" data-room="{{ room_code }}" data-rp="{{ rp_id }}">
+
+  <!-- LEFT : current Pokémon -->
+  <section class="panel poke-panel">
+    <div class="poke-art">
+      <img id="pokeArt" alt="" src="">
+      <div class="poke-badges" id="pokeBadges"></div>
+    </div>
+    <h2 class="poke-name" id="pokeName">Waiting…</h2>
+    <div class="type-row" id="pokeTypes"></div>
+    <div class="stat-grid" id="pokeStats"></div>
+    <div class="bst-bar">
+      <span>Base Stat Total</span>
+      <b id="pokeBst">—</b>
+    </div>
+    <div class="ability-row" id="pokeAbilities"></div>
+  </section>
+
+  <!-- CENTER : auction info -->
+  <section class="panel auction-center">
+    <div class="auction-head">
+      <span class="pill" id="auctionIndex">Auction #1</span>
+      <span class="muted small" id="startingBid">Starting bid —</span>
+    </div>
+
+    <div class="bid-display">
+      <span class="bid-label">Current bid</span>
+      <span class="bid-value" id="currentBid">0</span>
+      <span class="bid-bidder" id="currentBidder">No bids yet</span>
+    </div>
+
+    <div class="timer-ring">
+      <svg viewBox="0 0 120 120" class="ring">
+        <circle class="ring-bg" cx="60" cy="60" r="52"></circle>
+        <circle class="ring-fg" cx="60" cy="60" r="52" id="ringFg"></circle>
+      </svg>
+      <span class="timer-text" id="timerText">--</span>
+    </div>
+
+    <div class="quick-bids" id="quickBids"></div>
+
+    <form class="bid-form" id="bidForm">
+      <input type="number" id="bidInput" min="1" step="1" placeholder="Custom bid"
+             autocomplete="off" inputmode="numeric">
+      <button class="btn btn-primary" type="submit" id="bidSubmit">Bid</button>
+    </form>
+
+    <div class="bid-history">
+      <h3>Bid history</h3>
+      <ul id="bidHistory"></ul>
+    </div>
+  </section>
+
+  <!-- RIGHT : players -->
+  <section class="panel players-panel">
+    <h2 class="panel-title">Players</h2>
+    <div class="players-scroll" id="playerList"></div>
+  </section>
+
+  <!-- Chat drawer -->
+  <aside class="chat-drawer" id="chatDrawer">
+    <div class="chat-drawer-head">
+      <b>Room Chat</b>
+      <button class="btn btn-ghost btn-xs" id="chatClose">✕</button>
+    </div>
+    <div class="chat-log" id="chatLog"></div>
+    <form class="chat-form" id="chatForm">
+      <input type="text" id="chatInput" maxlength="240" placeholder="Message…"
+             autocomplete="off">
+      <button class="btn btn-primary btn-sm" type="submit">Send</button>
+    </form>
+  </aside>
+
+  <!-- Auction ended overlay -->
+  <div class="overlay" id="resultOverlay" hidden>
+    <div class="overlay-card">
+      <h2 id="resultTitle">Sold!</h2>
+      <img id="resultArt" alt="">
+      <p id="resultText"></p>
+    </div>
+  </div>
+
+  <!-- Pokémon details modal -->
+  <div class="overlay" id="detailOverlay" hidden>
+    <div class="overlay-card detail-card">
+      <button class="btn btn-ghost btn-xs close-x" id="detailClose">✕</button>
+      <div id="detailBody"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="{{ url_for('static', filename='js/common.js') }}"></script>
+<script src="{{ url_for('static', filename='js/auction.js') }}"></script>
+{% endblock %}

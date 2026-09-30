@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Join Room — Pokémon Auction{% endblock %}
+
+{% block content %}
+<div class="panel narrow">
+  <h1 class="panel-title">Join a Room</h1>
+
+  {% if errors %}
+    <div class="alert alert-error">
+      {% for e in errors %}<div>{{ e }}</div>{% endfor %}
+    </div>
+  {% endif %}
+
+  <form method="post" class="form" autocomplete="off">
+    <label class="field">
+      <span>Room code</span>
+      <input type="text" name="code" maxlength="12" required
+             placeholder="POKE-7X92" style="text-transform:uppercase"
+             value="{{ request.form.get('code', prefill) }}">
+    </label>
+
+    <label class="field">
+      <span>Your name</span>
+      <input type="text" name="name" maxlength="16" required
+             placeholder="Misty" value="{{ request.form.get('name','') }}">
+    </label>
+
+    <button class="btn btn-primary btn-block" type="submit">Join Room</button>
+  </form>
+
+  <p class="muted center">
+    Don't have a code? <a href="{{ url_for('main.create') }}">Create your own room</a>.
+  </p>
+</div>
+{% endblock %}

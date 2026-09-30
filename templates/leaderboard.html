@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Leaderboard {{ room_code }} — Pokémon Auction{% endblock %}
+
+{% block content %}
+<div class="panel narrow">
+  <h1 class="panel-title">🏆 Final Leaderboard</h1>
+
+  {% if not has_game %}
+    <p>No finished game for this room yet.</p>
+  {% else %}
+    <ol class="leaderboard big">
+      {% for row in leaderboard %}
+        <li class="lb-row rank-{{ row.rank }}">
+          <span class="lb-rank">#{{ row.rank }}</span>
+          <span class="lb-name">{{ row.name }}</span>
+          <span class="lb-points">{{ row.points }} pts</span>
+        </li>
+      {% endfor %}
+    </ol>
+  {% endif %}
+
+  <div class="center-actions">
+    <a class="btn btn-primary" href="{{ url_for('main.results', room_code=room_code) }}">
+      View full results
+    </a>
+    <a class="btn btn-ghost" href="{{ url_for('main.index') }}">Home</a>
+  </div>
+</div>
+{% endblock %}

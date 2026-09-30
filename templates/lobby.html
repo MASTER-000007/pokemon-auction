@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Lobby {{ room_code }} — Pokémon Auction{% endblock %}
+
+{% block content %}
+<div class="lobby" data-room="{{ room_code }}" data-rp="{{ rp_id }}">
+
+  <div class="room-code-bar">
+    <div>
+      <span class="muted">Room code</span>
+      <div class="room-code" id="roomCode">{{ room_code }}</div>
+    </div>
+    <button class="btn btn-ghost btn-sm" id="copyCode">Copy invite link</button>
+  </div>
+
+  <div class="lobby-grid">
+    <section class="panel">
+      <h2 class="panel-title">Players <span id="playerCount" class="pill">0</span></h2>
+      <ul class="player-list" id="playerList"></ul>
+
+      <div class="lobby-actions">
+        <button class="btn btn-primary btn-block" id="startBtn" disabled>Start Game</button>
+        <button class="btn btn-danger btn-block btn-sm" id="endBtn" hidden>Close Room</button>
+        <p class="muted small center" id="startHint">Waiting for players…</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel-title">Settings</h2>
+      <div class="settings-display" id="settingsDisplay"></div>
+      <p class="muted small">Only the host can change settings before the game starts.</p>
+    </section>
+
+    <section class="panel chat-panel">
+      <h2 class="panel-title">Chat</h2>
+      <div class="chat-log" id="chatLog"></div>
+      <form class="chat-form" id="chatForm">
+        <input type="text" id="chatInput" maxlength="240" placeholder="Say something…"
+               autocomplete="off">
+        <button class="btn btn-primary btn-sm" type="submit">Send</button>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="{{ url_for('static', filename='js/common.js') }}"></script>
+<script src="{{ url_for('static', filename='js/lobby.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Create Room — Pokémon Auction{% endblock %}
+
+{% block content %}
+<div class="panel narrow">
+  <h1 class="panel-title">Create a Room</h1>
+
+  {% if errors %}
+    <div class="alert alert-error">
+      {% for e in errors %}<div>{{ e }}</div>{% endfor %}
+    </div>
+  {% endif %}
+
+  <form method="post" class="form" autocomplete="off">
+    <label class="field">
+      <span>Your name</span>
+      <input type="text" name="name" maxlength="16" required
+             placeholder="Ash" value="{{ request.form.get('name','') }}">
+    </label>
+
+    <details class="settings" open>
+      <summary>Game settings</summary>
+
+      <div class="grid-2">
+        <label class="field">
+          <span>Starting coins</span>
+          <input type="number" name="starting_coins" min="100" max="100000" step="50"
+                 value="{{ request.form.get('starting_coins', config.STARTING_COINS) }}">
+        </label>
+
+        <label class="field">
+          <span>Pokémon per player</span>
+          <input type="number" name="team_size" min="1" max="6"
+                 value="{{ request.form.get('team_size', config.TEAM_SIZE) }}">
+        </label>
+
+        <label class="field">
+          <span>Max players</span>
+          <input type="number" name="max_players" min="2" max="8"
+                 value="{{ request.form.get('max_players', config.MAX_PLAYERS) }}">
+        </label>
+
+        <label class="field">
+          <span>Auction timer (seconds)</span>
+          <input type="number" name="auction_duration" min="5" max="180"
+                 value="{{ request.form.get('auction_duration', config.AUCTION_DURATION) }}">
+        </label>
+
+        <label class="field">
+          <span>Minimum bid increment</span>
+          <input type="number" name="min_bid_increment" min="1" max="1000"
+                 value="{{ request.form.get('min_bid_increment', config.MIN_BID_INCREMENT) }}">
+        </label>
+
+        <label class="field">
+          <span>Anti-snipe seconds</span>
+          <input type="number" name="anti_snipe_seconds" min="1" max="30"
+                 value="{{ request.form.get('anti_snipe_seconds', config.ANTI_SNIPE_SECONDS) }}">
+        </label>
+      </div>
+
+      <div class="toggles">
+        <label class="toggle">
+          <input type="checkbox" name="anti_snipe_enabled" checked>
+          <span>Anti-snipe timer</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" name="allow_duplicates">
+          <span>Allow duplicate Pokémon</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" name="allow_legendaries" checked>
+          <span>Include legendary Pokémon</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" name="allow_mythicals" checked>
+          <span>Include mythical Pokémon</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" name="show_balances" checked>
+          <span>Show everyone's coin balance</span>
+        </label>
+      </div>
+    </details>
+
+    <button class="btn btn-primary btn-block" type="submit">Create Room</button>
+  </form>
+</div>
+{% endblock %}

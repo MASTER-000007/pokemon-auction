@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Pokémon Auction — Home{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <div class="hero-inner">
+    <h1 class="hero-title">Bid. Collect. <span class="accent">Dominate.</span></h1>
+    <p class="hero-sub">
+      A real-time multiplayer Pokémon auction. Outbid your friends, build a team
+      of {{ config.TEAM_SIZE }}, then let the battle engine settle it.
+    </p>
+
+    <div class="hero-actions">
+      <a class="btn btn-primary btn-lg" href="{{ url_for('main.create') }}">Create a Room</a>
+      <a class="btn btn-ghost btn-lg" href="{{ url_for('main.join') }}">Join a Room</a>
+    </div>
+
+    {% if pokemon_count == 0 %}
+      <div class="alert alert-warn">
+        <b>Pokémon database is empty.</b>
+        Run <code>python init_pokemon.py</code> in a terminal, then reload this page.
+      </div>
+    {% else %}
+      <p class="hero-meta">{{ pokemon_count }} Pokémon loaded into the local cache.</p>
+    {% endif %}
+  </div>
+
+  <div class="hero-cards">
+    <div class="feature-card">
+      <div class="feature-icon">💰</div>
+      <h3>Live Auctions</h3>
+      <p>Server-authoritative bidding with anti-snipe timers and instant
+         Socket.IO updates.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🎯</div>
+      <h3>Type Strategy</h3>
+      <p>Coverage, resistances and weaknesses all feed the battle engine — not
+         just raw stats.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🏆</div>
+      <h3>Round Robin</h3>
+      <p>Every team fights every other team. Points decide the final
+         leaderboard.</p>
+    </div>
+  </div>
+</section>
+
+<section class="how">
+  <h2>How it works</h2>
+  <ol class="how-list">
+    <li><span>1</span> Create a private room and share the code.</li>
+    <li><span>2</span> Everyone joins the lobby with a display name.</li>
+    <li><span>3</span> Bid on random Pokémon with your starting coins.</li>
+    <li><span>4</span> Fill your team of {{ config.TEAM_SIZE }} — then battles run automatically.</li>
+    <li><span>5</span> Check the leaderboard and crown a winner.</li>
+  </ol>
+</section>
+{% endblock %}
