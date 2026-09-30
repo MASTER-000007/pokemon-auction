@@ -10,7 +10,6 @@
   const ROOM = root.dataset.room;
   const RP_ID = parseInt(root.dataset.rp, 10);
 
-  /* --------------- DOM --------------- */
   const $ = (id) => document.getElementById(id);
   const pokeArt = $("pokeArt"), pokeName = $("pokeName"), pokeTypes = $("pokeTypes"),
         pokeStats = $("pokeStats"), pokeBst = $("pokeBst"), pokeAbilities = $("pokeAbilities"),
@@ -38,7 +37,6 @@
   const socket = io({ transports: ["websocket", "polling"] });
   PA.bindConnectionDot(socket);
 
-  /* ================= rendering ================= */
   function renderAuction(auction) {
     if (!auction) {
       pokeName.textContent = "Waiting…";
@@ -66,7 +64,13 @@
       if (mon.is_mythical) {
         pokeBadges.innerHTML += '<span class="badge mythical">MYTHICAL</span>';
       }
-      auctionIndex.textContent = "Auction #" + (auction.index || 1);
+
+      const idx = auction.index || 1;
+      const limit = auction.limit || (state.room && state.room.auction_limit) || 0;
+      auctionIndex.textContent = limit
+        ? "Auction #" + idx + " / " + limit
+        : "Auction #" + idx;
+
       startingBidEl.textContent = "Starting bid " + auction.starting_bid;
     }
 
@@ -86,9 +90,6 @@
     const disabled = full || !you.coins;
 
     const buttons = [];
-    const inc = auction.min_increment || 10;
-    const base = auction.current_bid || (auction.starting_bid - inc);
-
     [10, 25, 50].forEach((step) => {
       const value = auction.current_bid ? auction.current_bid + step : auction.starting_bid;
       buttons.push({ label: "+" + step, value: Math.min(value, you.coins || 0) });
@@ -169,7 +170,6 @@
     detailOverlay.hidden = false;
   }
 
-  /* ================= timer ================= */
   function setRemaining(seconds) {
     localRemaining = Math.max(0, Math.ceil(seconds || 0));
     paintTimer();
@@ -194,7 +194,6 @@
     ringFg.classList.toggle("danger", localRemaining <= 5);
   }
 
-  /* ================= bidding ================= */
   function submitBid(raw) {
     const value = parseInt(raw, 10);
     if (!Number.isFinite(value) || value <= 0) {
@@ -210,7 +209,6 @@
     bidInput.value = "";
   });
 
-  /* ================= chat ================= */
   function pushChat(msg) {
     const div = document.createElement("div");
     div.className = "chat-msg" + (msg.system ? " system" : "");
@@ -241,7 +239,6 @@
     if (e.target === detailOverlay) detailOverlay.hidden = true;
   });
 
-  /* ================= socket events ================= */
   socket.on("connect", () => socket.emit("join_room", { room_code: ROOM }));
 
   socket.on("state_sync", (data) => {
@@ -261,7 +258,12 @@
     state.auction = d.auction;
     lastRenderedAuctionId = null;
     renderAuction(d.auction);
-    PA.toast("New Pokémon: " + d.auction.pokemon.name, "success");
+    PA.toast(
+      "Auction #" + (d.auction.index || 1) +
+      (d.auction.limit ? "/" + d.auction.limit : "") +
+      ": " + d.auction.pokemon.name,
+      "success"
+    );
   });
 
   socket.on("auction_tick", (d) => {
