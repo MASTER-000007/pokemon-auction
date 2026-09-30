@@ -26,7 +26,6 @@
   const socket = io({ transports: ["websocket", "polling"] });
   PA.bindConnectionDot(socket);
 
-  /* -------------------- rendering -------------------- */
   function renderPlayers() {
     playerList.innerHTML = "";
     const players = state.players || [];
@@ -74,8 +73,6 @@
     });
 
     const isHost = !!(state.you && state.you.is_host);
-
-    // Robust fallbacks: server may or may not include these in every snapshot.
     const minPlayers = (state.room && Number(state.room.min_players)) || 2;
     const maxPlayers = (state.room && Number(state.room.max_players)) || 8;
 
@@ -101,6 +98,11 @@
 
   function renderSettings() {
     const s = (state.room && state.room.settings) || {};
+    const auctionLimit =
+      s.max_total_auctions && Number(s.max_total_auctions) > 0
+        ? String(s.max_total_auctions)
+        : "Auto";
+
     const rows = [
       ["Starting coins", s.starting_coins],
       ["Pokémon per player", s.team_size],
@@ -108,6 +110,7 @@
       ["Auction timer", s.auction_duration + "s"],
       ["Min bid increment", s.min_bid_increment],
       ["Anti-snipe", s.anti_snipe_enabled ? s.anti_snipe_seconds + "s" : "Off"],
+      ["Max auctions", auctionLimit],
       ["Duplicates", s.allow_duplicates ? "Allowed" : "Blocked"],
       ["Legendaries", s.allow_legendaries ? "Included" : "Excluded"],
       ["Mythicals", s.allow_mythicals ? "Included" : "Excluded"],
@@ -133,7 +136,6 @@
     chatLog.scrollTop = chatLog.scrollHeight;
   }
 
-  /* -------------------- socket events -------------------- */
   socket.on("connect", () => {
     socket.emit("join_room", { room_code: ROOM });
   });
@@ -183,7 +185,6 @@
     window.location.href = "/join?code=" + encodeURIComponent(ROOM);
   });
 
-  /* -------------------- UI actions -------------------- */
   startBtn.addEventListener("click", () => socket.emit("start_game"));
   endBtn.addEventListener("click", () => {
     if (confirm("Close this room for everyone?")) socket.emit("end_room");
