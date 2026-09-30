@@ -72,6 +72,7 @@ def create():
             "allow_legendaries": request.form.get("allow_legendaries") == "on",
             "allow_mythicals": request.form.get("allow_mythicals") == "on",
             "show_balances": request.form.get("show_balances") == "on",
+            "max_total_auctions": request.form.get("max_total_auctions"),
         }
         raw_settings = {k: v for k, v in raw_settings.items() if v is not None}
 
