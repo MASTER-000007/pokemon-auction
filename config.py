@@ -2,6 +2,7 @@
 import os
 
 from dotenv import load_dotenv
+from sqlalchemy.pool import NullPool
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, ".env"))
@@ -36,7 +37,14 @@ class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-change-in-production")
     SQLALCHEMY_DATABASE_URI = _normalize_db_url(os.environ.get("DATABASE_URL"))
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True, "pool_recycle": 280}
+
+    # IMPORTANT: NullPool avoids a known incompatibility between SQLAlchemy's
+    # QueuePool and eventlet's monkey-patching. Without it, the app crashes with
+    # "RuntimeError: cannot notify on un-acquired lock" under gunicorn+eventlet.
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "poolclass": NullPool,
+    }
+
     AUTO_CREATE_DB = _bool(os.environ.get("AUTO_CREATE_DB"), True)
     JSON_SORT_KEYS = False
 
@@ -59,7 +67,7 @@ class Config:
     # ------------------------------------------------------------------
     # Auction value formula (configurable in ONE place)
     # ------------------------------------------------------------------
-    VALUE_BST_FACTOR = 0.10          # BST 300 -> 30 ; BST 600 -> 60
+    VALUE_BST_FACTOR = 0.10
     VALUE_LEGENDARY_MULT = 1.25
     VALUE_MYTHICAL_MULT = 1.35
     VALUE_MIN_STARTING_BID = 20
@@ -82,8 +90,8 @@ class Config:
     CHAT_RATE_LIMIT_SECONDS = 0.70
     CHAT_MAX_LENGTH = 240
     CHAT_HISTORY = 60
-    ROOM_IDLE_TIMEOUT = 60 * 60 * 6      # seconds
-    HOST_TRANSFER_GRACE = 20             # seconds after host disconnect
+    ROOM_IDLE_TIMEOUT = 60 * 60 * 6
+    HOST_TRANSFER_GRACE = 20
     MAX_CONSECUTIVE_UNSOLD = 3
     NAME_MAX_LENGTH = 16
 
