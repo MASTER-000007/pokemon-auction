@@ -1,7 +1,9 @@
 """HTTP routes — pages plus a small JSON API."""
 import os
+import threading
+import time
 
-from flask import (Blueprint, abort, current_app, jsonify, redirect,
+from flask import (Blueprint, current_app, jsonify, redirect,
                    render_template, request, session, url_for)
 
 from app import db
@@ -324,20 +326,43 @@ def api_stats():
 
 
 # ======================================================================
-# One-shot admin route — populate the Pokémon cache from the browser
+# Admin: background Pokémon cache population
 # ======================================================================
+# Simple process-wide progress tracker. Single worker means one fetch at a
+# time, which is exactly what we want — the DB writes are serialised anyway.
+_INIT_STATE = {
+    "running": False,
+    "started_at": None,
+    "finished_at": None,
+    "limit": 0,
+    "initial_count": 0,
+    "last_error": None,
+    "thread": None,
+}
+
+
+def _run_init_in_thread(app, limit):
+    """Background worker: runs inside a Flask app context so SQLAlchemy works."""
+    with app.app_context():
+        try:
+            from app.pokemon_api import populate_pokemon
+            populate_pokemon(limit=limit, progress=True)
+        except Exception as exc:
+            _INIT_STATE["last_error"] = str(exc)
+        finally:
+            _INIT_STATE["finished_at"] = time.time()
+            _INIT_STATE["running"] = False
+
+
 @main_bp.route("/admin/init-pokemon")
 def admin_init_pokemon():
-    """Populate the Pokémon database from PokéAPI.
+    """Start a background Pokémon cache fetch.
 
-    Protect this route by setting an ``INIT_SECRET`` environment variable on
-    your host and appending ``?secret=...`` to the URL:
+    Usage:
+        /admin/init-pokemon?secret=XXX&limit=1025
 
-        https://your-app.onrender.com/admin/init-pokemon?secret=abc123
-
-    Once the cache is populated, you can remove the INIT_SECRET variable
-    (or just leave the route dormant — it will do nothing if the DB is
-    already full).
+    The request returns immediately. Poll ``/admin/init-pokemon/status``
+    to watch progress. Safe to call multiple times — it resumes.
     """
     expected = os.environ.get("INIT_SECRET")
     provided = request.args.get("secret", "")
@@ -345,25 +370,79 @@ def admin_init_pokemon():
     if not expected:
         return jsonify({
             "ok": False,
-            "error": "INIT_SECRET environment variable is not set on the server.",
+            "error": "INIT_SECRET is not set on the server.",
         }), 403
 
     if provided != expected:
         return jsonify({"ok": False, "error": "Forbidden."}), 403
 
-    from app.pokemon_api import populate_pokemon
-
-    limit = int(request.args.get("limit", os.environ.get("POKEMON_LIMIT", 151)))
-
-    try:
-        db.create_all()
-        populate_pokemon(limit=limit, progress=False)
-        total = _pokemon_count()
+    if _INIT_STATE["running"]:
         return jsonify({
             "ok": True,
-            "message": f"Pokémon cache populated. Total entries: {total}",
-            "total": total,
+            "message": "A fetch is already running. Check /admin/init-pokemon/status.",
+            "status_url": "/admin/init-pokemon/status?secret=" + provided,
         })
-    except Exception as exc:
-        db.session.rollback()
-        return jsonify({"ok": False, "error": str(exc)}), 500
+
+    try:
+        limit = int(request.args.get("limit", os.environ.get("POKEMON_LIMIT", 1025)))
+    except ValueError:
+        return jsonify({"ok": False, "error": "limit must be an integer."}), 400
+
+    db.create_all()
+    initial = _pokemon_count()
+
+    _INIT_STATE.update({
+        "running": True,
+        "started_at": time.time(),
+        "finished_at": None,
+        "limit": limit,
+        "initial_count": initial,
+        "last_error": None,
+    })
+
+    app = current_app._get_current_object()
+    t = threading.Thread(target=_run_init_in_thread, args=(app, limit), daemon=True)
+    _INIT_STATE["thread"] = t
+    t.start()
+
+    return jsonify({
+        "ok": True,
+        "message": (
+            f"Fetch started in the background for up to {limit} Pokémon. "
+            f"{initial} already cached. Poll the status URL below — it will "
+            f"take roughly 5–10 minutes. You can close this tab."
+        ),
+        "initial_count": initial,
+        "limit": limit,
+        "status_url": "/admin/init-pokemon/status?secret=" + provided,
+    })
+
+
+@main_bp.route("/admin/init-pokemon/status")
+def admin_init_pokemon_status():
+    """Return progress of the background fetch."""
+    expected = os.environ.get("INIT_SECRET")
+    provided = request.args.get("secret", "")
+
+    if not expected or provided != expected:
+        return jsonify({"ok": False, "error": "Forbidden."}), 403
+
+    current = _pokemon_count()
+    elapsed = None
+    if _INIT_STATE["started_at"]:
+        end = _INIT_STATE["finished_at"] or time.time()
+        elapsed = round(end - _INIT_STATE["started_at"], 1)
+
+    return jsonify({
+        "ok": True,
+        "running": _INIT_STATE["running"],
+        "target_limit": _INIT_STATE["limit"],
+        "initial_count": _INIT_STATE["initial_count"],
+        "current_count": current,
+        "elapsed_seconds": elapsed,
+        "last_error": _INIT_STATE["last_error"],
+        "percent_complete": (
+            round(100.0 * current / _INIT_STATE["limit"], 1)
+            if _INIT_STATE["limit"] else 0
+        ),
+    })
